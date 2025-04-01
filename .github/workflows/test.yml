@@ -15,7 +15,7 @@ on:
       - "go.*"
 
 env:
-  GO_VERSION: 1.22.0
+  GO_VERSION: 1.24.1
 jobs:
   unit-tests:
     name: "Run unit tests in ${{ matrix.os }}"
@@ -31,7 +31,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-      - name: Run unit tests and generage HTML coverage report
+      - name: Run unit tests and generate HTML coverage report
         run: |
           make test
       - name: Archive code coverage results
@@ -73,11 +73,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Setup golang with the appropriate version
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: Run linting tests
         uses: golangci/golangci-lint-action@v6
         with:
-          version: v1.62.0
+          version: v1.64.7
           args: -v --timeout 3m0s

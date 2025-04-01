@@ -1,7 +1,7 @@
 # Git based version
 VERSION ?= $(shell git describe --tags)
 
-# Veriables used for building with goreleaser
+# Variables used for building with goreleaser
 MODULE_NAME := github.com/kkrt-labs/zk-pig
 
 GOPATH ?= $(shell go env GOPATH)
@@ -11,13 +11,14 @@ GOFILES := $(shell find . -name '*.go' -not -path "./vendor/*" -not -path "./tes
 
 # List of packages except testsutils
 PACKAGES ?= $(shell go list ./... | egrep -v "testutils" )
+COVERAGE_IGNORE ?= (\.pb\.go|/mock/)
 
 # Build folder
 BUILD_FOLDER = build
 
 # Tools versions
 GORELEASER_CROSS_VERSION = v1.24.0
-GOLANGCI_VERSION = v1.62.0
+GOLANGCI_VERSION = v1.64.7
 MOCKGEN_VERSION = v0.5.0
 
 # GOPRIVVATE
@@ -54,13 +55,14 @@ run:
 
 # Run go mod tidy command to update go.mod and go.sum files
 mod-tidy:
-	@export GOPRIVATE=$(GOPRIVATE) | go mod tidy --compat 1.18
+	@export GOPRIVATE=$(GOPRIVATE) | go mod tidy
 
 build/coverage:
 	@mkdir -p $(COVERAGE_BUILD_FOLDER)
 
 unit-test: build/coverage
 	@go test -covermode=count -coverprofile $(UNIT_COVERAGE_OUT) -v $(PACKAGES)
+	@grep -v -E '$(COVERAGE_IGNORE)' $(UNIT_COVERAGE_OUT) > $(UNIT_COVERAGE_OUT).tmp && mv $(UNIT_COVERAGE_OUT).tmp $(UNIT_COVERAGE_OUT)
 
 # Run unit tests with coverage
 test: unit-test
@@ -69,7 +71,6 @@ test: unit-test
 # Run unit tests with race detector
 test-race:
 	@go test -race $(PACKAGES)
-
 
 test-lint: ## Check linting
 	@type golangci-lint >/dev/null 2>&1 && { \
@@ -89,6 +90,7 @@ generate-proto:
 	@protoc --go_out=. --go_opt=paths=source_relative src/prover-input/proto/transaction.proto
 	@protoc --go_out=. --go_opt=paths=source_relative src/prover-input/proto/block.proto
 	@protoc --go_out=. --go_opt=paths=source_relative src/prover-input/proto/chain_config.proto
+	@protoc --go_out=. --go_opt=paths=source_relative src/prover-input/proto/extra.proto
 	@protoc --go_out=. --go_opt=paths=source_relative src/prover-input/proto/input.proto
 
 # Install mockgen command
@@ -98,7 +100,7 @@ mockgen-install:
 		go install go.uber.org/mock/mockgen@$(MOCKGEN_VERSION);  \
 	}
 
-generate-mocks: mockgen-install
+generate: mockgen-install
 	@go generate ./...
 
 goreleaser-snapshot:

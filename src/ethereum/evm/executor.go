@@ -12,7 +12,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	gethparams "github.com/ethereum/go-ethereum/params"
-	"github.com/kkrt-labs/go-utils/log"
 )
 
 // ExecParams are the parameters for an EVM execution.
@@ -20,6 +19,7 @@ type ExecParams struct {
 	VMConfig *vm.Config // VM configuration
 	Block    *types.Block
 	Validate bool // Whether to the validate the block at the end of execution
+	Commit   bool // Whether to commit the state changes
 	State    *gethstate.StateDB
 	Chain    *core.HeaderChain
 	Reporter func(error)
@@ -89,15 +89,21 @@ func (e *executor) Execute(ctx context.Context, params *ExecParams) (res *core.P
 
 	if params.Validate {
 		execErr = e.validateBlock(ctx, params, res)
+		if execErr != nil {
+			return
+		}
+	}
+
+	if params.Commit {
+		_, execErr = params.State.CommitWithoutFlush(true, false)
 	}
 
 	return
 }
 
-func (e *executor) processBlock(ctx context.Context, params *ExecParams) (*core.ProcessResult, error) {
+func (e *executor) processBlock(_ context.Context, params *ExecParams) (*core.ProcessResult, error) {
 	processor := core.NewStateProcessor(params.Chain.Config(), params.Chain)
 
-	log.LoggerFromContext(ctx).Info("Process block...")
 	res, err := processor.Process(params.Block, params.State, *params.VMConfig)
 	if err != nil {
 		if params.Reporter != nil {
@@ -108,8 +114,7 @@ func (e *executor) processBlock(ctx context.Context, params *ExecParams) (*core.
 	return res, err
 }
 
-func (e *executor) validateBlock(ctx context.Context, params *ExecParams, res *core.ProcessResult) error {
-	log.LoggerFromContext(ctx).Info("Validate block & state transition...")
+func (e *executor) validateBlock(_ context.Context, params *ExecParams, res *core.ProcessResult) error {
 	validator := core.NewBlockValidator(params.Chain.Config(), nil)
 	err := validator.ValidateState(params.Block, params.State, res, false)
 	if params.Reporter != nil {
@@ -121,7 +126,7 @@ func (e *executor) validateBlock(ctx context.Context, params *ExecParams, res *c
 	return nil
 }
 
-// summarizeBadBlock generates a human-readable summary of a bad block.
+// summarizeBadBlockError generates a human-readable summary of a bad block.
 func summarizeBadBlockError(chainCfg *gethparams.ChainConfig, block *types.Block, res *core.ProcessResult, err error) error {
 	var receipts types.Receipts
 	if res != nil {

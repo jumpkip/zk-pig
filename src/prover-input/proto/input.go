@@ -15,6 +15,7 @@ func ToProto(pi *input.ProverInput) *ProverInput {
 		Blocks:      BlocksToProto(pi.Blocks),
 		Witness:     WitnessToProto(pi.Witness),
 		ChainConfig: ChainConfigToProto(pi.ChainConfig),
+		Extra:       ExtraToProto(pi.Extra),
 	}
 }
 
@@ -28,6 +29,7 @@ func FromProto(pi *ProverInput) *input.ProverInput {
 		Blocks:      BlocksFromProto(pi.Blocks),
 		Witness:     WitnessFromProto(pi.Witness),
 		ChainConfig: ChainConfigFromProto(pi.ChainConfig),
+		Extra:       ExtraFromProto(pi.Extra),
 	}
 }
 
@@ -38,8 +40,8 @@ func WitnessToProto(w *input.Witness) *Witness {
 
 	return &Witness{
 		Ancestors: HeadersToProto(w.Ancestors),
-		State:     hexBytesToBytes(w.State),
-		Codes:     hexBytesToBytes(w.Codes),
+		State:     w.State,
+		Codes:     w.Codes,
 	}
 }
 
@@ -50,7 +52,7 @@ func WitnessFromProto(w *Witness) *input.Witness {
 
 	return &input.Witness{
 		Ancestors: HeadersFromProto(w.Ancestors),
-		State:     bytesToHexutil(w.State),
-		Codes:     bytesToHexutil(w.Codes),
+		State:     w.State,
+		Codes:     w.Codes,
 	}
 }

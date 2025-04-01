@@ -8,12 +8,14 @@ import (
 	"io"
 
 	store "github.com/kkrt-labs/go-utils/store"
-	multistore "github.com/kkrt-labs/go-utils/store/multi"
 	input "github.com/kkrt-labs/zk-pig/src/prover-input"
 	protoinput "github.com/kkrt-labs/zk-pig/src/prover-input/proto"
 	"google.golang.org/protobuf/proto"
 )
 
+//go:generate mockgen -destination=./mock/input_store.go -package=mockstore github.com/kkrt-labs/zk-pig/src/store ProverInputStore
+
+// ProverInputStore is a store for prover inputs.
 type ProverInputStore interface {
 	// StoreProverInput stores the prover inputs for a block.
 	StoreProverInput(ctx context.Context, inputs *input.ProverInput) error
@@ -23,31 +25,17 @@ type ProverInputStore interface {
 	LoadProverInput(ctx context.Context, chainID, blockNumber uint64) (*input.ProverInput, error)
 }
 
-type ProverInputStoreConfig struct {
-	StoreConfig     multistore.Config
-	ContentType     store.ContentType
-	ContentEncoding store.ContentEncoding
-}
-
 type proverInputStore struct {
 	store       store.Store
 	contentType store.ContentType
 }
 
-func New(cfg *ProverInputStoreConfig) (ProverInputStore, error) {
-	inputstore, err := multistore.NewFromConfig(cfg.StoreConfig)
-	if err != nil {
-		return nil, err
-	}
-	return NewFromStore(inputstore, cfg.ContentType), nil
-}
-
-func NewFromStore(inputstore store.Store, contentType store.ContentType) ProverInputStore {
-	return &proverInputStore{store: inputstore, contentType: contentType}
+func NewProverInputStore(s store.Store, contentType store.ContentType) ProverInputStore {
+	return &proverInputStore{store: s, contentType: contentType}
 }
 
 func (s *proverInputStore) StoreProverInput(ctx context.Context, data *input.ProverInput) error {
-	var buf bytes.Buffer
+	buf := new(bytes.Buffer)
 	switch s.contentType {
 	case store.ContentTypeProtobuf:
 		protoMsg := protoinput.ToProto(data)
@@ -57,30 +45,24 @@ func (s *proverInputStore) StoreProverInput(ctx context.Context, data *input.Pro
 		}
 		buf.Write(protoBytes)
 	case store.ContentTypeJSON:
-		if err := json.NewEncoder(&buf).Encode(data); err != nil {
+		if err := json.NewEncoder(buf).Encode(data); err != nil {
 			return fmt.Errorf("failed to encode JSON: %w", err)
 		}
 	default:
-		contentType, err := s.contentType.String()
-		if err != nil {
-			return fmt.Errorf("failed to get content type: %w", err)
-		}
-		return fmt.Errorf("unsupported content type: %s", contentType)
+		return fmt.Errorf("unsupported content type: %s", s.contentType)
 	}
 
-	path := s.proverPath(data.Blocks[0].Header.Number.Uint64())
-	headers := store.Headers{
+	path := s.path(data.ChainConfig.ChainID.Uint64(), data.Blocks[0].Header.Number.Uint64())
+	headers := &store.Headers{
 		ContentType: s.contentType,
-		KeyValue:    map[string]string{"chainID": fmt.Sprintf("%d", data.ChainConfig.ChainID.Uint64())},
 	}
-	return s.store.Store(ctx, path, bytes.NewReader(buf.Bytes()), &headers)
+	return s.store.Store(ctx, path, bytes.NewReader(buf.Bytes()), headers)
 }
 
 func (s *proverInputStore) LoadProverInput(ctx context.Context, chainID, blockNumber uint64) (*input.ProverInput, error) {
-	path := s.proverPath(blockNumber)
+	path := s.path(chainID, blockNumber)
 	headers := store.Headers{
 		ContentType: s.contentType,
-		KeyValue:    map[string]string{"chainID": fmt.Sprintf("%d", chainID)},
 	}
 	reader, err := s.store.Load(ctx, path, &headers)
 	if err != nil {
@@ -105,16 +87,12 @@ func (s *proverInputStore) LoadProverInput(ctx context.Context, chainID, blockNu
 		}
 		data = protoinput.FromProto(protoMsg)
 	default:
-		contentType, err := s.contentType.String()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get content type: %w", err)
-		}
-		return nil, fmt.Errorf("unsupported content type: %s", contentType)
+		return nil, fmt.Errorf("unsupported content type: %s", s.contentType)
 	}
 
 	return data, nil
 }
 
-func (s *proverInputStore) proverPath(blockNumber uint64) string {
-	return fmt.Sprintf("%d", blockNumber)
+func (s *proverInputStore) path(chainID, blockNumber uint64) string {
+	return fmt.Sprintf("%d/%d", chainID, blockNumber)
 }

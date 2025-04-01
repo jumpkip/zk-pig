@@ -22,14 +22,21 @@ type RPCDatabase struct {
 	remote                 rpc.Client
 	stateRootToBlockNumber map[gethcommon.Hash]*big.Int
 	currentBlockNumber     *big.Int
+
+	ctx context.Context
 }
 
-// NewRPCDatabase creates a new state database that reads the state from a remote RPC node.
-func NewRPCDatabase(db gethstate.Database, remote rpc.Client) *RPCDatabase {
+// HackDatabase creates a new state database that reads the state from a remote RPC node.
+func Hack(db gethstate.Database, remote rpc.Client) *RPCDatabase {
+	return HackWithContext(context.TODO(), db, remote)
+}
+
+func HackWithContext(ctx context.Context, db gethstate.Database, remote rpc.Client) *RPCDatabase {
 	return &RPCDatabase{
 		Database:               db,
 		remote:                 remote,
 		stateRootToBlockNumber: make(map[gethcommon.Hash]*big.Int),
+		ctx:                    ctx,
 	}
 }
 
@@ -59,6 +66,7 @@ func (db *RPCDatabase) Reader(root gethcommon.Hash) (gethstate.Reader, error) {
 		remote:      db.remote,
 		blockNumber: blockNumber,
 		root:        root,
+		ctx:         db.ctx,
 	}, nil
 }
 
@@ -83,22 +91,6 @@ func (db *RPCDatabase) OpenStorageTrie(stateRoot gethcommon.Hash, address gethco
 	return &NoOpTrie{}, nil
 }
 
-// ContractCode implements the gethstate.Database interface.
-func (db *RPCDatabase) ContractCode(addr gethcommon.Address, _ gethcommon.Hash) ([]byte, error) {
-	code, err := db.remote.CodeAt(context.TODO(), addr, db.currentBlockNumber)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get code for address %s: %v", addr.Hex(), err)
-	}
-
-	return code, nil
-}
-
-// ContractCodeSize implements the gethstate.Database interface.
-func (db *RPCDatabase) ContractCodeSize(addr gethcommon.Address, codeHash gethcommon.Hash) (int, error) {
-	code, err := db.ContractCode(addr, codeHash)
-	return len(code), err
-}
-
 // rpcReader is a state reader that retrieves state information from a remote node (typically an archive node).
 // it provides the ability to read account and storage information from a remote node
 // it is useful when the local node does not have a full state trie
@@ -113,6 +105,8 @@ type rpcReader struct {
 
 	blockNumber *big.Int        // Block number to retrieve state information
 	root        gethcommon.Hash // State root corresponding to the block number (it is assumed that the state root for the given block does not change (i.e. no re-org))
+
+	ctx context.Context
 }
 
 // Account implementing Reader interface, retrieving the account associated with
@@ -122,7 +116,7 @@ type rpcReader struct {
 // - Returns an error only if remote node returns an error
 // - The returned account is safe to modify after the call
 func (r *rpcReader) Account(addr gethcommon.Address) (*gethtypes.StateAccount, error) {
-	account, err := r.remote.GetProof(context.TODO(), addr, nil, r.blockNumber)
+	account, err := r.remote.GetProof(r.ctx, addr, nil, r.blockNumber)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get proof for address %s and block %v: %v", addr.Hex(), r.blockNumber, err)
 	}
@@ -151,11 +145,24 @@ func (r *rpcReader) Account(addr gethcommon.Address) (*gethtypes.StateAccount, e
 // - Returns an error only if an unexpected issue occurs
 // - The returned storage slot is safe to modify after the call
 func (r *rpcReader) Storage(addr gethcommon.Address, slot gethcommon.Hash) (gethcommon.Hash, error) {
-	value, err := r.remote.StorageAt(context.TODO(), addr, slot, r.blockNumber)
+	value, err := r.remote.StorageAt(r.ctx, addr, slot, r.blockNumber)
 	if err != nil {
 		return gethcommon.Hash{}, fmt.Errorf("failed to get storage slot for address %s and slot %s and block %v: %v", addr.Hex(), slot.Hex(), r.blockNumber, err)
 	}
 	return gethcommon.BytesToHash(value), nil
+}
+
+func (r *rpcReader) Code(addr gethcommon.Address, _ gethcommon.Hash) ([]byte, error) {
+	code, err := r.remote.CodeAt(r.ctx, addr, r.blockNumber)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get code for address %s and block %v: %v", addr.Hex(), r.blockNumber, err)
+	}
+	return code, nil
+}
+
+func (r *rpcReader) CodeSize(addr gethcommon.Address, codeHash gethcommon.Hash) (int, error) {
+	code, err := r.Code(addr, codeHash)
+	return len(code), err
 }
 
 // Copy implementing Reader interface, returning a deep-copied state reader.
@@ -164,6 +171,7 @@ func (r *rpcReader) Copy() gethstate.Reader {
 		blockNumber: r.blockNumber,
 		remote:      r.remote,
 		root:        r.root,
+		ctx:         r.ctx,
 	}
 }
 
