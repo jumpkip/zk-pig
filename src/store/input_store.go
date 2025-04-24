@@ -54,20 +54,23 @@ func (s *proverInputStore) StoreProverInput(ctx context.Context, data *input.Pro
 
 	path := s.path(data.ChainConfig.ChainID.Uint64(), data.Blocks[0].Header.Number.Uint64())
 	headers := &store.Headers{
-		ContentType: s.contentType,
+		ContentType:     s.contentType,
+		ContentEncoding: store.ContentEncodingPlain,
+		KeyValue: map[string]string{
+			"chain.id":     fmt.Sprintf("%d", data.ChainConfig.ChainID.Uint64()),
+			"block.number": fmt.Sprintf("%d", data.Blocks[0].Header.Number.Uint64()),
+		},
 	}
 	return s.store.Store(ctx, path, bytes.NewReader(buf.Bytes()), headers)
 }
 
 func (s *proverInputStore) LoadProverInput(ctx context.Context, chainID, blockNumber uint64) (*input.ProverInput, error) {
 	path := s.path(chainID, blockNumber)
-	headers := store.Headers{
-		ContentType: s.contentType,
-	}
-	reader, err := s.store.Load(ctx, path, &headers)
+	reader, _, err := s.store.Load(ctx, path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load data from store: %w", err)
 	}
+	defer reader.Close()
 
 	data := &input.ProverInput{}
 
@@ -94,5 +97,19 @@ func (s *proverInputStore) LoadProverInput(ctx context.Context, chainID, blockNu
 }
 
 func (s *proverInputStore) path(chainID, blockNumber uint64) string {
-	return fmt.Sprintf("%d/%d", chainID, blockNumber)
+	return s.contentType.FilePath(fmt.Sprintf("/%d/inputs/%d", chainID, blockNumber))
+}
+
+type noOpProverInputStore struct{}
+
+func (s *noOpProverInputStore) StoreProverInput(_ context.Context, _ *input.ProverInput) error {
+	return nil
+}
+
+func (s *noOpProverInputStore) LoadProverInput(_ context.Context, _, _ uint64) (*input.ProverInput, error) {
+	return nil, nil
+}
+
+func NewNoOpProverInputStore() ProverInputStore {
+	return &noOpProverInputStore{}
 }
